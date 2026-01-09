@@ -54,31 +54,47 @@ app.get('/health', (req, res) => {
 
 // API Routes
 
-// Create invoice for Telegram Stars payment
+// Create invoice for Telegram TON payment
 app.post('/api/v1/create-invoice', validateTelegramInitData, async (req, res) => {
   try {
-    const { drawingId, amount, title, description } = req.body;
+    const { drawingId, sessionId, amount, title, description, currency, type } = req.body;
     const userId = req.telegramUser?.id;
 
-    // For Telegram Stars, we use createInvoiceLink with Stars currency
-    // Note: Telegram Stars (XTR) is the internal currency
-    // The bot must be configured to accept Stars payments
+    // Convert TON to nanotons (1 TON = 1,000,000,000 nanotons)
+    const TON_TO_NANOTON = 1_000_000_000;
+    const amountInNanotons = Math.floor(amount * TON_TO_NANOTON);
+
+    // For Telegram TON payments, we use createInvoiceLink with TON currency
+    // Note: The bot must be configured with a TON payment provider
+    // Currency: 'TON' for TON payments
     
     try {
+      const payload = {
+        ...(drawingId && { drawingId }),
+        ...(sessionId && { sessionId }),
+        userId,
+        type: type || 'post',
+      };
+
       const invoiceUrl = await bot.createInvoiceLink({
-        title: title || 'Post Drawing',
-        description: description || 'Post your drawing to the gallery',
-        payload: JSON.stringify({ drawingId, userId, type: 'post_drawing' }),
-        currency: 'XTR', // Telegram Stars
-        prices: [{ label: 'Post Drawing', amount: amount }], // Amount in Stars (not cents)
+        title: title || 'Payment',
+        description: description || 'Complete payment to proceed',
+        payload: JSON.stringify(payload),
+        currency: currency || 'TON', // TON currency
+        prices: [{ 
+          label: title || 'Payment', 
+          amount: amountInNanotons // Amount in nanotons
+        }],
+        provider_token: process.env.TON_PAYMENT_PROVIDER_TOKEN || '', // Optional: TON payment provider token
       });
 
+      console.log(`💰 Created TON invoice: ${amount} TON (${amountInNanotons} nanotons)`);
       res.json({ success: true, invoiceUrl });
     } catch (invoiceError) {
       // If invoice creation fails, return a mock URL for testing
-      // In production, ensure bot has Stars payment enabled
+      // In production, ensure bot has TON payment provider configured
       console.warn('Invoice creation failed, using mock URL:', invoiceError.message);
-      const mockUrl = `https://t.me/invoice/${drawingId}_${Date.now()}`;
+      const mockUrl = `https://t.me/invoice/${drawingId || sessionId || 'test'}_${Date.now()}`;
       res.json({ success: true, invoiceUrl: mockUrl });
     }
   } catch (error) {

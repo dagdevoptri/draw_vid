@@ -7,12 +7,13 @@ import { useState } from 'react';
 import type { SavedDrawing } from '../utils/storage';
 import { hapticFeedback, showAlert } from '../utils/telegram';
 import { postDrawing } from '../api/posting';
+import { createTONInvoice, openPaymentInvoice } from '../utils/payment';
 
 interface PostButtonProps {
   drawing: SavedDrawing;
 }
 
-const POST_PRICE_STARS = 10; // Price in Telegram Stars
+const POST_PRICE_TON = 1; // Price in TON (1 TON = 1,000,000,000 nanotons)
 
 export function PostButton({ drawing }: PostButtonProps) {
   const [isPosting, setIsPosting] = useState(false);
@@ -24,58 +25,31 @@ export function PostButton({ drawing }: PostButtonProps) {
     hapticFeedback('impact');
 
     try {
-      // Check if Telegram Stars API is available
-      const webApp = typeof window !== 'undefined' ? window.Telegram?.WebApp : null;
-      
-      if (webApp?.openInvoice) {
-        // Create invoice and open payment
-        const invoiceUrl = await createInvoice(drawing);
-        
-        webApp.openInvoice(invoiceUrl, (status) => {
-          if (status === 'paid') {
-            // Payment successful, post the drawing
-            performPost(drawing);
-          } else {
-            setIsPosting(false);
-            if (status === 'cancelled') {
-              showAlert('Payment cancelled');
-            } else {
-              showAlert('Payment failed');
-            }
-          }
-        });
-      } else {
-        // Fallback: Direct post without payment (for testing/development)
-        console.warn('Telegram Stars API not available, posting directly');
-        await performPost(drawing);
-      }
+      // Create TON invoice
+      const invoiceUrl = await createTONInvoice({
+        drawingId: drawing.id,
+        amount: POST_PRICE_TON,
+        title: `Post Drawing: ${drawing.name}`,
+        description: 'Post your drawing to the gallery',
+        type: 'post',
+      });
+
+      // Open payment dialog
+      openPaymentInvoice(
+        invoiceUrl,
+        () => {
+          // Payment successful, post the drawing
+          performPost(drawing);
+        },
+        (error) => {
+          setIsPosting(false);
+          showAlert(error);
+        }
+      );
     } catch (error) {
       setIsPosting(false);
       showAlert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
-  };
-
-  const createInvoice = async (drawing: SavedDrawing): Promise<string> => {
-    // In production, create invoice on backend
-    // For now, return a mock invoice URL
-    // Backend should create invoice via Telegram Bot API
-    const response = await fetch('/api/v1/create-invoice', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        drawingId: drawing.id,
-        amount: POST_PRICE_STARS,
-        title: `Post Drawing: ${drawing.name}`,
-        description: 'Post your drawing to the gallery',
-      }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to create invoice');
-    }
-
-    const data = await response.json();
-    return data.invoiceUrl;
   };
 
   const performPost = async (drawing: SavedDrawing) => {
@@ -105,7 +79,7 @@ export function PostButton({ drawing }: PostButtonProps) {
           : 'bg-blue-500 text-white hover:bg-blue-600 active:scale-95'
       }`}
     >
-      {isPosting ? '⏳ Posting...' : `⭐ Post (${POST_PRICE_STARS} Stars)`}
+      {isPosting ? '⏳ Posting...' : `💎 Post (${POST_PRICE_TON} TON)`}
     </button>
   );
 }

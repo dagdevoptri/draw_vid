@@ -4,11 +4,11 @@
  * Shows saved image and submit button
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useDrawingStore } from '../store/drawingStore';
 import { uploadDrawingSession } from '../api/client';
 import { hapticFeedback, showAlert } from '../utils/telegram';
-import { useState } from 'react';
+import { createTONInvoice, openPaymentInvoice } from '../utils/payment';
 
 interface SavedViewProps {
   savedImage: string; // Base64 thumbnail
@@ -82,24 +82,51 @@ export function SavedView({ savedImage, onBack, onNewDrawing }: SavedViewProps) 
   }, []);
 
   const handleSubmit = async () => {
+    if (isSubmitting) return;
+
     setIsSubmitting(true);
-    hapticFeedback('notification');
+    hapticFeedback('impact');
 
     try {
       const sessionData = getSessionData();
-      const result = await uploadDrawingSession(sessionData);
 
-      if (result.success) {
-        hapticFeedback('notification');
-        showAlert('Drawing submitted successfully! 🎉');
-        // Optionally navigate back or show success state
-      } else {
-        showAlert(`Error: ${result.error || 'Failed to submit'}`);
-      }
+      // Create TON invoice
+      const invoiceUrl = await createTONInvoice({
+        sessionId: sessionData.sessionId,
+        amount: 1, // 1 TON
+        title: 'Submit Drawing',
+        description: 'Submit your drawing for processing',
+        type: 'submit',
+      });
+
+      // Open payment dialog
+      openPaymentInvoice(
+        invoiceUrl,
+        async () => {
+          // Payment successful, submit the drawing
+          try {
+            const result = await uploadDrawingSession(sessionData);
+
+            if (result.success) {
+              hapticFeedback('notification');
+              showAlert('Drawing submitted successfully! 🎉');
+            } else {
+              showAlert(`Error: ${result.error || 'Failed to submit'}`);
+            }
+          } catch (error) {
+            showAlert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          } finally {
+            setIsSubmitting(false);
+          }
+        },
+        (error) => {
+          setIsSubmitting(false);
+          showAlert(error);
+        }
+      );
     } catch (error) {
-      showAlert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
-    } finally {
       setIsSubmitting(false);
+      showAlert(`Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -146,7 +173,7 @@ export function SavedView({ savedImage, onBack, onNewDrawing }: SavedViewProps) 
               : 'bg-blue-500 text-white hover:bg-blue-600 active:scale-95 shadow-blue-200'
           }`}
         >
-          {isSubmitting ? '⏳ Submitting...' : '📤 Submit Drawing'}
+          {isSubmitting ? '⏳ Processing...' : '💎 Submit (1 TON)'}
         </button>
 
         <div className="flex gap-4">
